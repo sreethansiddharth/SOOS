@@ -1,8 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware, requireAdmin } from '../middleware/auth.js';
 import { orderRepository } from '../repositories/orderRepository.js';
-import { inventoryRepository } from '../repositories/inventoryRepository.js';
-import { productRepository } from '../repositories/productRepository.js';
+import { inventoryRepository, INITIAL_INVENTORY } from '../repositories/inventoryRepository.js';
+import { productRepository, INITIAL_PRODUCTS } from '../repositories/productRepository.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 export const adminRouter = Router();
@@ -20,8 +20,8 @@ adminRouter.get('/orders', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-// PATCH /api/v1/admin/inventory/:id
-adminRouter.patch('/inventory/:id', async (req: Request, res: Response, next: NextFunction) => {
+// Update inventory handler for both PUT and PATCH
+const updateInventoryHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { available, reason } = req.body;
@@ -30,7 +30,7 @@ adminRouter.patch('/inventory/:id', async (req: Request, res: Response, next: Ne
       return next(new AppError(400, 'INVALID_STOCK', 'Available stock must be a non-negative number.'));
     }
 
-    inventoryRepository._setAvailable(id, available);
+    await inventoryRepository.setStock(id, available);
 
     res.json({
       success: true,
@@ -42,7 +42,10 @@ adminRouter.patch('/inventory/:id', async (req: Request, res: Response, next: Ne
   } catch (err) {
     next(err);
   }
-});
+};
+
+adminRouter.patch('/inventory/:id', updateInventoryHandler);
+adminRouter.put('/inventory/:id', updateInventoryHandler);
 
 // POST /api/v1/admin/products
 adminRouter.post('/products', async (req: Request, res: Response, next: NextFunction) => {
@@ -59,6 +62,25 @@ adminRouter.post('/products', async (req: Request, res: Response, next: NextFunc
     });
 
     res.status(201).json({ product });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/admin/seed - Seeds DynamoDB tables with initial catalogue and inventory
+adminRouter.post('/seed', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    for (const p of INITIAL_PRODUCTS) {
+      await productRepository.create(p);
+    }
+    for (const [productId, inv] of Object.entries(INITIAL_INVENTORY)) {
+      await inventoryRepository.setStock(productId, inv.available);
+    }
+    res.json({
+      success: true,
+      message: 'Successfully seeded catalogue and inventory into AWS DynamoDB.',
+      productCount: INITIAL_PRODUCTS.length,
+    });
   } catch (err) {
     next(err);
   }

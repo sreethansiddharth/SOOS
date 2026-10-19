@@ -3,7 +3,7 @@ import { config } from '../config/index.js';
 import { ddbDocClient } from './dynamoClient.js';
 import { GetCommand, ScanCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 
-const INITIAL_PRODUCTS: Product[] = [
+export const INITIAL_PRODUCTS: Product[] = [
   {
     productId: 'prod_headphones_001',
     slug: 'studio-wireless-pro-anc',

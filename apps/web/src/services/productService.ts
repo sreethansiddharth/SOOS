@@ -130,4 +130,24 @@ export const productService = {
       throw new Error(data?.error?.message || `Failed to update inventory (HTTP ${res.status})`);
     }
   },
+
+  async seedCatalog(): Promise<void> {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/admin/seed`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'admin',
+        },
+      });
+    } catch {
+      throw new Error(`Failed to reach backend API at ${API_BASE} to seed catalogue.`);
+    }
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(data?.error?.message || `Failed to seed DynamoDB (HTTP ${res.status})`);
+    }
+  },
 };

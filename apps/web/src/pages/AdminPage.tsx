@@ -197,8 +197,16 @@ export const AdminPage: React.FC = () => {
   };
 
   const handleResetCatalog = async () => {
-    addFaultLog('info', 'Synchronizing catalogue and active orders from DynamoDB...');
-    await loadData();
+    addFaultLog('info', 'Seeding initial 5 products and stock inventory into AWS DynamoDB tables...');
+    try {
+      await productService.seedCatalog();
+      addFaultLog('success', 'DynamoDB seeding succeeded! Initial catalogue and stock pools restored.');
+      await loadData();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        addFaultLog('error', `Seeding Failed: ${err.message}`);
+      }
+    }
   };
 
   return (

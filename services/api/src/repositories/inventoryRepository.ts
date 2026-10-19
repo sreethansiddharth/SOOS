@@ -3,7 +3,7 @@ import { config } from '../config/index.js';
 import { ddbDocClient } from './dynamoClient.js';
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
-const INITIAL_INVENTORY: Record<string, { available: number; reserved: number }> = {
+export const INITIAL_INVENTORY: Record<string, { available: number; reserved: number }> = {
   prod_headphones_001: { available: 5, reserved: 0 },
   prod_keyboard_002: { available: 3, reserved: 0 },
   prod_mouse_003: { available: 8, reserved: 0 },
@@ -127,6 +127,26 @@ export const inventoryRepository = {
         ConditionExpression: 'reserved >= :qty',
         ExpressionAttributeValues: {
           ':qty': quantity,
+          ':now': now,
+        },
+      })
+    );
+  },
+
+  async setStock(productId: string, available: number): Promise<void> {
+    const now = new Date().toISOString();
+    if (config.useInMemoryDdb) {
+      this._setAvailable(productId, available);
+      return;
+    }
+    await ddbDocClient.send(
+      new UpdateCommand({
+        TableName: config.inventoryTable,
+        Key: { productId },
+        UpdateExpression: 'SET available = :avail, reserved = if_not_exists(reserved, :zero), updatedAt = :now',
+        ExpressionAttributeValues: {
+          ':avail': available,
+          ':zero': 0,
           ':now': now,
         },
       })
