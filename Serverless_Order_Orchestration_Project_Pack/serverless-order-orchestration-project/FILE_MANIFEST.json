@@ -1,0 +1,19 @@
+{
+  "root": "/mnt/data/serverless-order-orchestration-project",
+  "files": [
+    "ANTIGRAVITY_PHASE_PROMPTS.md",
+    "PROJECT_DETAILS_AND_IMPLEMENTATION_PLAN.md",
+    "README.md",
+    "docs/API_CONTRACT.md",
+    "docs/ARCHITECTURE.md",
+    "docs/ARCHITECTURE_DECISIONS.md",
+    "docs/COST_AND_CLEANUP.md",
+    "docs/DATABASE_SCHEMA.md",
+    "docs/DEPLOYMENT_PLAN.md",
+    "docs/ORDER_STATE_MACHINE.md",
+    "docs/PROJECT_SPECIFICATION.md",
+    "docs/SECURITY_MODEL.md",
+    "docs/TEST_STRATEGY.md"
+  ],
+  "zip": "/mnt/data/Serverless_Order_Orchestration_Project_Pack.zip"
+}

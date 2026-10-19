@@ -1,0 +1,193 @@
+{
+  "Comment": "AWS Step Functions Saga Orchestrator for Serverless Order Fulfillment (BCSE355L)",
+  "StartAt": "ValidateOrder",
+  "States": {
+    "ValidateOrder": {
+      "Type": "Task",
+      "Resource": "${ValidateOrderFunctionArn}",
+      "Comment": "Validates schema version, active products, and item boundaries.",
+      "TimeoutSeconds": 15,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["ValidationError", "States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "FailOrder"
+        }
+      ],
+      "ResultPath": "$.validationResult",
+      "Next": "ReserveInventory"
+    },
+
+    "ReserveInventory": {
+      "Type": "Task",
+      "Resource": "${ReserveInventoryFunctionArn}",
+      "Comment": "Executes atomic conditional write in DynamoDB (available >= requestedQuantity).",
+      "TimeoutSeconds": 15,
+      "Retry": [
+        {
+          "ErrorEquals": ["DynamoDB.ProvisionedThroughputExceededException", "TransientDatabaseException"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["InsufficientStockException", "ConditionalCheckFailedException"],
+          "ResultPath": "$.error",
+          "Next": "FailOrder"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "FailOrder"
+        }
+      ],
+      "ResultPath": "$.inventoryResult",
+      "Next": "SimulatePayment"
+    },
+
+    "SimulatePayment": {
+      "Type": "Task",
+      "Resource": "${SimulatePaymentFunctionArn}",
+      "Comment": "Captures simulated payment using stable idempotency token. Detects forced fault injection.",
+      "TimeoutSeconds": 20,
+      "Retry": [
+        {
+          "ErrorEquals": ["GatewayTimeoutException", "TransientNetworkException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["PaymentAmbiguousException"],
+          "ResultPath": "$.error",
+          "Next": "ReconcilePayment"
+        },
+        {
+          "ErrorEquals": ["PaymentFailedException", "GatewayDeclineException", "States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseInventory"
+        }
+      ],
+      "ResultPath": "$.paymentResult",
+      "Next": "ConfirmOrder"
+    },
+
+    "ReconcilePayment": {
+      "Type": "Task",
+      "Resource": "${ReconcilePaymentFunctionArn}",
+      "Comment": "Queries simulated payment provider by attemptId before repeating or releasing stock.",
+      "TimeoutSeconds": 15,
+      "ResultPath": "$.reconciliationResult",
+      "Next": "EvaluateReconciliation"
+    },
+
+    "EvaluateReconciliation": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.reconciliationResult.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "ConfirmOrder"
+        }
+      ],
+      "Default": "ReleaseInventory"
+    },
+
+    "ReleaseInventory": {
+      "Type": "Task",
+      "Resource": "${ReleaseInventoryFunctionArn}",
+      "Comment": "SAGA COMPENSATING ACTION: Safely returns held stock to available pool to guarantee zero overselling.",
+      "TimeoutSeconds": 15,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2.0
+        }
+      ],
+      "ResultPath": "$.compensationResult",
+      "Next": "CancelOrder"
+    },
+
+    "CancelOrder": {
+      "Type": "Task",
+      "Resource": "${CancelOrderFunctionArn}",
+      "Comment": "Transitions order to CANCELLED and persists audit event in DynamoDB OrderEvents.",
+      "TimeoutSeconds": 15,
+      "ResultPath": "$.cancellationResult",
+      "Next": "OrderCancelled"
+    },
+
+    "ConfirmOrder": {
+      "Type": "Task",
+      "Resource": "${ConfirmOrderFunctionArn}",
+      "Comment": "Transitions order to CONFIRMED and publishes event to Amazon SNS order-events-topic.",
+      "TimeoutSeconds": 15,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "ResultPath": "$.confirmationResult",
+      "Next": "InitiateShipment"
+    },
+
+    "InitiateShipment": {
+      "Type": "Task",
+      "Resource": "${InitiateShipmentFunctionArn}",
+      "Comment": "Enqueues asynchronous fulfillment and PDF invoice generation task into SQS FIFO queue.",
+      "TimeoutSeconds": 15,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "ResultPath": "$.shipmentResult",
+      "Next": "OrderSucceeded"
+    },
+
+    "FailOrder": {
+      "Type": "Task",
+      "Resource": "${FailOrderFunctionArn}",
+      "Comment": "Transitions order to FAILED with error details.",
+      "TimeoutSeconds": 15,
+      "ResultPath": "$.failResult",
+      "Next": "OrderFailed"
+    },
+
+    "OrderSucceeded": {
+      "Type": "Succeed"
+    },
+
+    "OrderCancelled": {
+      "Type": "Fail",
+      "Cause": "Payment declined. Saga compensation safely restored inventory.",
+      "Error": "OrderCancelledDueToPaymentFailure"
+    },
+
+    "OrderFailed": {
+      "Type": "Fail",
+      "Cause": "Order failed validation or insufficient stock.",
+      "Error": "OrderValidationOrStockFailed"
+    }
+  }
+}

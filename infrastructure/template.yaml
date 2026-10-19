@@ -1,0 +1,362 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Serverless Order Orchestration & Fulfillment System (BCSE355L)
+  API Gateway, Step Functions Saga Orchestrator, DynamoDB, SQS/SNS, S3, and CloudWatch.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, demo, prod]
+    Description: Deployment environment identifier
+
+Globals:
+  Function:
+    Timeout: 20
+    MemorySize: 256
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    Tracing: Active
+    Environment:
+      Variables:
+        NODE_ENV: production
+        ENVIRONMENT: !Ref Environment
+        PRODUCTS_TABLE: !Ref ProductsTable
+        INVENTORY_TABLE: !Ref InventoryTable
+        ORDERS_TABLE: !Ref OrdersTable
+        ORDER_EVENTS_TABLE: !Ref OrderEventsTable
+        IDEMPOTENCY_TABLE: !Ref IdempotencyTable
+        PAYMENTS_TABLE: !Ref PaymentsTable
+        ORDER_STATE_MACHINE_ARN: !Ref OrderProcessingStateMachine
+        ORDER_EVENTS_TOPIC_ARN: !Ref OrderEventsTopic
+        BACKGROUND_QUEUE_URL: !Ref FulfillmentQueue
+        INVOICE_BUCKET: !Ref InvoiceStorageBucket
+
+Resources:
+  # ==========================================
+  # API GATEWAY
+  # ==========================================
+  OrderApiGateway:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowHeaders: ['*']
+        AllowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS']
+        MaxAge: 600
+
+  # ==========================================
+  # API HANDLER LAMBDA
+  # ==========================================
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api/
+      Handler: dist/lambda.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InventoryTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrderEventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IdempotencyTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt OrderProcessingStateMachine.Name
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref OrderApiGateway
+            Path: /{proxy+}
+            Method: ANY
+
+  # ==========================================
+  # DYNAMODB LOGICAL TABLES
+  # ==========================================
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'aether-products-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: productId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: productId
+          KeyType: HASH
+
+  InventoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'aether-inventory-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: productId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: productId
+          KeyType: HASH
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'aether-orders-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: CustomerOrdersIndex
+          KeySchema:
+            - AttributeName: customerId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  OrderEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'aether-order-events-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+        - AttributeName: eventKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+        - AttributeName: eventKey
+          KeyType: RANGE
+
+  IdempotencyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'aether-idempotency-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: key
+          KeyType: HASH
+
+  PaymentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'aether-payments-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: paymentAttemptId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: paymentAttemptId
+          KeyType: HASH
+
+  # ==========================================
+  # STEP FUNCTIONS STATE MACHINE & TASKS
+  # ==========================================
+  ValidateOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api/
+      Handler: dist/lambda.handler
+
+  ReserveInventoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/inventory/
+      Handler: index.reserveInventoryHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InventoryTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+
+  ReleaseInventoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/inventory/
+      Handler: index.releaseInventoryHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InventoryTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+
+  SimulatePaymentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/payment-simulator/
+      Handler: index.simulatePaymentHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+
+  ReconcilePaymentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/payment-simulator/
+      Handler: index.reconcilePaymentHandler
+
+  ConfirmOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/confirmation/
+      Handler: index.confirmOrderHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrderEventsTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt OrderEventsTopic.TopicName
+
+  CancelOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/confirmation/
+      Handler: index.cancelOrderHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+
+  InitiateShipmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/shipment/
+      Handler: index.initiateShipmentHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrderEventsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt FulfillmentQueue.QueueName
+
+  OrderProcessingStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub 'aether-order-orchestration-${Environment}'
+      DefinitionUri: statemachine/order_processing.asl.json
+      DefinitionSubstitutions:
+        ValidateOrderFunctionArn: !GetAtt ValidateOrderFunction.Arn
+        ReserveInventoryFunctionArn: !GetAtt ReserveInventoryFunction.Arn
+        ReleaseInventoryFunctionArn: !GetAtt ReleaseInventoryFunction.Arn
+        SimulatePaymentFunctionArn: !GetAtt SimulatePaymentFunction.Arn
+        ReconcilePaymentFunctionArn: !GetAtt ReconcilePaymentFunction.Arn
+        ConfirmOrderFunctionArn: !GetAtt ConfirmOrderFunction.Arn
+        CancelOrderFunctionArn: !GetAtt CancelOrderFunction.Arn
+        InitiateShipmentFunctionArn: !GetAtt InitiateShipmentFunction.Arn
+        FailOrderFunctionArn: !GetAtt CancelOrderFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ValidateOrderFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ReserveInventoryFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ReleaseInventoryFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SimulatePaymentFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ReconcilePaymentFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ConfirmOrderFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CancelOrderFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref InitiateShipmentFunction
+
+  # ==========================================
+  # MESSAGING: SQS FIFO & SNS TOPIC
+  # ==========================================
+  OrderEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'aether-order-events-${Environment}'
+
+  FulfillmentDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'aether-fulfillment-dlq-${Environment}.fifo'
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  FulfillmentQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'aether-fulfillment-${Environment}.fifo'
+      FifoQueue: true
+      ContentBasedDeduplication: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FulfillmentDLQ.Arn
+        maxReceiveCount: 3
+
+  # SQS Worker Lambda Consumer
+  FulfillmentWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/background-worker/
+      Handler: index.fulfillmentWorkerHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrderEventsTable
+        - S3CrudPolicy:
+            BucketName: !Ref InvoiceStorageBucket
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt FulfillmentQueue.Arn
+            BatchSize: 10
+
+  # ==========================================
+  # S3 PRIVATE INVOICE BUCKET
+  # ==========================================
+  InvoiceStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'aether-invoices-private-${Environment}-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API Gateway base endpoint URL
+    Value: !Sub 'https://${OrderApiGateway}.execute-api.${AWS::Region}.amazonaws.com'
+  StateMachineArn:
+    Description: AWS Step Functions State Machine ARN
+    Value: !GetAtt OrderProcessingStateMachine.Arn
+  FulfillmentQueueUrl:
+    Description: SQS FIFO fulfillment queue URL
+    Value: !Ref FulfillmentQueue
+  InvoiceBucketName:
+    Description: S3 Private Invoice Bucket Name
+    Value: !Ref InvoiceStorageBucket
