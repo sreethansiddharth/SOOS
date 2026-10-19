@@ -6,8 +6,11 @@ import { productRepository } from '../src/repositories/productRepository.js';
 import { orderRepository } from '../src/repositories/orderRepository.js';
 import { idempotencyRepository } from '../src/repositories/idempotencyRepository.js';
 
+import { config } from '../src/config/index.js';
+
 describe('Concurrency and Race Condition Prevention (DynamoDB Invariants)', () => {
   beforeEach(() => {
+    config.useInMemoryDdb = true;
     productRepository._reset();
     inventoryRepository._reset();
     orderRepository._reset();

@@ -10,6 +10,7 @@ export const ShopPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Filters from query params
   const currentCategory = searchParams.get('category') || 'all';
@@ -18,11 +19,12 @@ export const ShopPage: React.FC = () => {
   const inStockOnly = searchParams.get('inStock') === 'true';
 
   useEffect(() => {
-    productService.getCategories().then(setCategories);
+    productService.getCategories().then(setCategories).catch(() => {});
   }, []);
 
   useEffect(() => {
     setIsLoading(true);
+    setError(null);
     productService
       .getProducts({
         category: currentCategory,
@@ -32,6 +34,10 @@ export const ShopPage: React.FC = () => {
       })
       .then((data) => {
         setProducts(data);
+        setIsLoading(false);
+      })
+      .catch((err: Error) => {
+        setError(err.message);
         setIsLoading(false);
       });
   }, [currentCategory, currentQuery, currentSort, inStockOnly]);
@@ -144,8 +150,30 @@ export const ShopPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Product Grid / Loading / Empty State */}
-      {isLoading ? (
+      {/* Product Grid / Loading / Error / Empty State */}
+      {error ? (
+        <div className="bg-amber-50/80 rounded-3xl p-8 sm:p-10 border border-amber-200 text-center max-w-xl mx-auto space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-2xs">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <div className="space-y-1">
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-200/80 text-amber-950 uppercase tracking-wide">
+              AWS Connection Required
+            </span>
+            <h3 className="font-display font-bold text-lg text-amber-950 pt-1">
+              Unable to Load Catalogue from AWS DynamoDB
+            </h3>
+          </div>
+          <p className="text-xs text-amber-900/80 leading-relaxed max-w-md mx-auto">
+            {error}
+          </p>
+          <div className="pt-2 text-[11px] text-amber-800 font-mono bg-white/70 p-3 rounded-xl border border-amber-200/60 text-left">
+            <div>&bull; Ensure backend server is running: <code>npm run dev</code> in <code>services/api</code></div>
+            <div>&bull; Deploy AWS SAM stack: <code>sam deploy</code> in <code>infrastructure/</code></div>
+            <div>&bull; Verify AWS credentials: <code>aws configure</code> or environment variables</div>
+          </div>
+        </div>
+      ) : isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
             <div

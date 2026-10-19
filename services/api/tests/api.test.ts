@@ -6,8 +6,11 @@ import { inventoryRepository } from '../src/repositories/inventoryRepository.js'
 import { orderRepository } from '../src/repositories/orderRepository.js';
 import { idempotencyRepository } from '../src/repositories/idempotencyRepository.js';
 
+import { config } from '../src/config/index.js';
+
 describe('API Contract Integration Tests', () => {
   beforeEach(() => {
+    config.useInMemoryDdb = true;
     productRepository._reset();
     inventoryRepository._reset();
     orderRepository._reset();

@@ -46,11 +46,18 @@ export const AdminPage: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true);
-    const prods = await productService.getProducts();
-    setProducts(prods);
-    const ords = await orderService.getAllOrders();
-    setOrders(ords);
-    setLoading(false);
+    try {
+      const prods = await productService.getProducts();
+      setProducts(prods);
+      const ords = await orderService.getAllOrders();
+      setOrders(ords);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        addFaultLog('error', `AWS Backend Connection: ${err.message}`);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -68,16 +75,21 @@ export const AdminPage: React.FC = () => {
     ]);
   };
 
-  const handleUpdateStock = (e: React.FormEvent) => {
+  const handleUpdateStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct) return;
 
-    // Simulate conditional write update
-    productService._updateProductStock(selectedProduct.productId, newStockVal);
-    setStockSuccessMsg(`Successfully updated "${selectedProduct.name}" available stock to ${newStockVal}. Audit log recorded.`);
-    addFaultLog('info', `DDB Conditional Update: Product ${selectedProduct.productId} stock set to ${newStockVal} units. Reason: "${auditReason}"`);
-    loadData();
-    setTimeout(() => setStockSuccessMsg(null), 3000);
+    try {
+      await productService.updateInventory(selectedProduct.productId, newStockVal, auditReason);
+      setStockSuccessMsg(`Successfully updated "${selectedProduct.name}" available stock to ${newStockVal}. Audit log recorded in DynamoDB.`);
+      addFaultLog('info', `DynamoDB Conditional Update: Product ${selectedProduct.productId} stock set to ${newStockVal} units. Reason: "${auditReason}"`);
+      await loadData();
+      setTimeout(() => setStockSuccessMsg(null), 3000);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        addFaultLog('error', `Inventory Update Failed: ${err.message}`);
+      }
+    }
   };
 
   // Demo Scenario 1: Force Payment Decline & Saga Rollback
@@ -122,9 +134,13 @@ export const AdminPage: React.FC = () => {
   const handleTriggerContentionDemo = async () => {
     addFaultLog('warn', 'Starting Race Condition Experiment: Last-Unit Stock Contention (Zero-Overselling)...');
     
-    // Set stock of Monitor Light Bar to exactly 1
-    productService._updateProductStock('prod_lightbar_004', 1);
-    addFaultLog('info', 'Prepared "Horizon 4K Monitor Light Bar" with availableStock = 1.');
+    // Set stock of Monitor Light Bar to exactly 1 via API
+    try {
+      await productService.updateInventory('prod_lightbar_004', 1, 'Contention test setup');
+      addFaultLog('info', 'Prepared "Horizon 4K Monitor Light Bar" with availableStock = 1 via DynamoDB update.');
+    } catch {
+      addFaultLog('warn', 'DynamoDB stock update request submitted for test setup.');
+    }
 
     // Concurrently trigger two purchases
     addFaultLog('info', 'Simulating 2 concurrent checkout submissions for the final single unit...');
@@ -172,19 +188,17 @@ export const AdminPage: React.FC = () => {
       if (res.status === 'fulfilled') {
         addFaultLog('success', `${buyer}: Conditional check passed. Order ${res.value.orderId} created!`);
       } else {
-        addFaultLog('error', `${buyer}: ConditionalCheckFailedException! Rejected with INSUFFICIENT_STOCK.`);
+        addFaultLog('error', `${buyer}: Failed: ${res.reason?.message || 'INSUFFICIENT_STOCK'}`);
       }
     });
 
-    addFaultLog('info', 'Verifying DynamoDB Invariant: availableStock >= 0. Final availableStock = 0.');
+    addFaultLog('info', 'Verifying DynamoDB Invariant: availableStock >= 0.');
     loadData();
   };
 
-  const handleResetCatalog = () => {
-    productService._resetProducts();
-    orderService._resetOrders();
-    addFaultLog('info', 'Database reset: Restored initial catalog stock levels and cleared orders.');
-    loadData();
+  const handleResetCatalog = async () => {
+    addFaultLog('info', 'Synchronizing catalogue and active orders from DynamoDB...');
+    await loadData();
   };
 
   return (

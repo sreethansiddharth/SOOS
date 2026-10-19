@@ -62,16 +62,14 @@ describe('Idempotency Key Generation', () => {
   });
 });
 
-describe('Order Service & Idempotency Rules', () => {
-  beforeEach(() => {
-    productService._resetProducts();
-    orderService._resetOrders();
-  });
+describe('Order Service API Contract & Error Handling', () => {
+  it('throws descriptive backend connection error when API server is unreachable', async () => {
+    // Simulate network connection failure
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
 
-  it('rejects order when requested quantity exceeds available stock', async () => {
-    // Product 4 has only 1 unit in stock
     const req = {
-      items: [{ productId: 'prod_lightbar_004', quantity: 5 }],
+      items: [{ productId: 'prod_lightbar_004', quantity: 1 }],
       shippingAddress: {
         recipient: 'Test User',
         line1: 'Test St',
@@ -84,39 +82,69 @@ describe('Order Service & Idempotency Rules', () => {
       },
     };
 
-    await expect(orderService.createOrder(req, generateIdempotencyKey())).rejects.toThrow(
-      /INSUFFICIENT_STOCK/
-    );
+    try {
+      await expect(orderService.createOrder(req, generateIdempotencyKey())).rejects.toThrow(
+        /Backend Connection Failed/
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
-  it('returns identical order response when submitting with same idempotency key and same payload', async () => {
-    const key = generateIdempotencyKey();
+  it('correctly propagates backend INSUFFICIENT_STOCK error to the frontend', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'INSUFFICIENT_STOCK',
+              message: 'Insufficient stock for "Horizon Light Bar". Available: 0, Requested: 1.',
+            },
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
     const req = {
-      items: [{ productId: 'prod_headphones_001', quantity: 1 }],
+      items: [{ productId: 'prod_lightbar_004', quantity: 1 }],
       shippingAddress: {
-        recipient: 'Rahul Sharma',
-        line1: 'Hostel Block',
+        recipient: 'Test User',
+        line1: 'Test St',
         city: 'Vellore',
         state: 'TN',
         postalCode: '632014',
         country: 'IN',
-        phone: '9876543210',
-        email: 'rahul@demo.com',
+        phone: '1234567890',
+        email: 'test@demo.com',
       },
     };
 
-    const firstResponse = await orderService.createOrder(req, key);
-    expect(firstResponse.orderId).toBeDefined();
-
-    // Re-submit identical request with same key
-    const secondResponse = await orderService.createOrder(req, key);
-    expect(secondResponse.orderId).toBe(firstResponse.orderId);
-    expect(secondResponse.idempotencyKey).toBe(key);
+    try {
+      await expect(orderService.createOrder(req, generateIdempotencyKey())).rejects.toThrow(
+        /INSUFFICIENT_STOCK/
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
-  it('detects idempotency conflict if key is reused with different payload', async () => {
-    const key = generateIdempotencyKey();
-    const req1 = {
+  it('correctly propagates AWS credentials and Step Functions missing error to the frontend', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'AWS_CREDENTIALS_MISSING',
+              message: 'AWS credentials not configured on host. Integration with AWS DynamoDB and Step Functions requires valid AWS credentials.',
+            },
+          }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    const req = {
       items: [{ productId: 'prod_headphones_001', quantity: 1 }],
       shippingAddress: {
         recipient: 'Rahul',
@@ -130,16 +158,54 @@ describe('Order Service & Idempotency Rules', () => {
       },
     };
 
-    await orderService.createOrder(req1, key);
+    try {
+      await expect(orderService.createOrder(req, generateIdempotencyKey())).rejects.toThrow(
+        /AWS_CREDENTIALS_MISSING/
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 
-    // Reuse same key with different quantity (different payload)
-    const req2 = {
-      ...req1,
-      items: [{ productId: 'prod_headphones_001', quantity: 2 }],
+  it('returns valid 202 Accepted response on successful order submission', async () => {
+    const originalFetch = globalThis.fetch;
+    const key = generateIdempotencyKey();
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            orderId: 'ord_12345',
+            status: 'PENDING',
+            statusUrl: '/api/v1/orders/ord_12345',
+            eventsUrl: '/api/v1/orders/ord_12345/events',
+            correlationId: 'corr_12345',
+            idempotencyKey: key,
+          }),
+          { status: 202, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    const req = {
+      items: [{ productId: 'prod_headphones_001', quantity: 1 }],
+      shippingAddress: {
+        recipient: 'Rahul',
+        line1: 'Apt 1',
+        city: 'Vellore',
+        state: 'TN',
+        postalCode: '632014',
+        country: 'IN',
+        phone: '1111111111',
+        email: 'r@demo.com',
+      },
     };
 
-    await expect(orderService.createOrder(req2, key)).rejects.toThrow(
-      /IDEMPOTENCY_CONFLICT/
-    );
+    try {
+      const res = await orderService.createOrder(req, key);
+      expect(res.orderId).toBe('ord_12345');
+      expect(res.status).toBe('PENDING');
+      expect(res.idempotencyKey).toBe(key);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

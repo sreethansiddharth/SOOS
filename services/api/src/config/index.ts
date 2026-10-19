@@ -19,8 +19,8 @@ export const config = {
     process.env.ORDER_STATE_MACHINE_ARN ||
     'arn:aws:states:ap-south-1:123456789012:stateMachine:aether-order-orchestration-dev',
 
-  // Mode: In-Memory repository fallback for local testing without AWS account
-  useInMemoryDdb: process.env.USE_IN_MEMORY_DDB !== 'false',
+  // Mode: Connects to REAL AWS by default. Only enabled if explicitly set to 'true' (e.g. for offline unit tests).
+  useInMemoryDdb: process.env.USE_IN_MEMORY_DDB === 'true',
   
   // CORS
   allowedOrigin: process.env.ALLOWED_ORIGIN || '*',

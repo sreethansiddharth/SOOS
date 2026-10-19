@@ -33,26 +33,38 @@ export const ProductDetailPage: React.FC = () => {
   const [stockError, setStockError] = useState<string | null>(null);
   const [pincode, setPincode] = useState('632014');
   const [deliveryChecked, setDeliveryChecked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
     setIsLoading(true);
     setStockError(null);
+    setError(null);
     setQuantity(1);
 
-    productService.getProductBySlug(slug).then(async (data) => {
-      if (!data) {
-        setIsLoading(false);
-        return;
-      }
-      setProduct(data);
-      setSelectedImage(data.imageUrl);
+    productService
+      .getProductBySlug(slug)
+      .then(async (data) => {
+        if (!data) {
+          setIsLoading(false);
+          return;
+        }
+        setProduct(data);
+        setSelectedImage(data.imageUrl);
 
-      // Load related products from same category
-      const rel = await productService.getProducts({ category: data.category });
-      setRelated(rel.filter((p) => p.productId !== data.productId).slice(0, 3));
-      setIsLoading(false);
-    });
+        // Load related products from same category
+        try {
+          const rel = await productService.getProducts({ category: data.category });
+          setRelated(rel.filter((p) => p.productId !== data.productId).slice(0, 3));
+        } catch {
+          // Ignored for related
+        }
+        setIsLoading(false);
+      })
+      .catch((err: Error) => {
+        setError(err.message);
+        setIsLoading(false);
+      });
   }, [slug]);
 
   if (isLoading) {
@@ -68,6 +80,34 @@ export const ProductDetailPage: React.FC = () => {
             <div className="h-32 bg-gray-100 rounded-2xl" />
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-lg mx-auto my-20 p-8 text-center bg-amber-50 rounded-3xl border border-amber-200 space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-200 text-amber-950 uppercase">
+            AWS DynamoDB Required
+          </span>
+          <h2 className="text-lg font-display font-bold text-amber-950 pt-1">
+            Unable to Retrieve Product Record
+          </h2>
+        </div>
+        <p className="text-xs text-amber-900/80 leading-relaxed">
+          {error}
+        </p>
+        <Link
+          to="/shop"
+          className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-[#172B3A] text-white text-xs font-semibold rounded-xl"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Catalogue</span>
+        </Link>
       </div>
     );
   }

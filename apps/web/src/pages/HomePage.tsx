@@ -1,11 +1,28 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, ShieldCheck, Zap, RefreshCw, Cpu, Layers, Sparkles, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Zap, RefreshCw, Cpu, Layers, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
-import { INITIAL_PRODUCTS, CATEGORIES } from '../data/mockProducts';
+import { Product } from '../types';
+import { productService } from '../services/productService';
+import { CATEGORIES } from '../data/mockProducts';
 
 export const HomePage: React.FC = () => {
-  const featuredProducts = INITIAL_PRODUCTS.slice(0, 4);
+  const [featuredProducts, setFeaturedProducts] = React.useState<Product[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    productService
+      .getProducts()
+      .then((items) => {
+        setFeaturedProducts(items.slice(0, 4));
+        setLoading(false);
+      })
+      .catch((err: Error) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
 
   return (
     <div className="space-y-20 pb-20">
@@ -169,11 +186,42 @@ export const HomePage: React.FC = () => {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featuredProducts.map((product) => (
-            <ProductCard key={product.productId} product={product} />
-          ))}
-        </div>
+        {error ? (
+          <div className="bg-amber-50/80 rounded-3xl p-8 border border-amber-200 text-center max-w-xl mx-auto space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-200 text-amber-950 uppercase">
+                AWS DynamoDB Required
+              </span>
+              <h3 className="font-display font-bold text-base text-amber-950 pt-1">
+                DynamoDB Flagship Catalogue Offline
+              </h3>
+            </div>
+            <p className="text-xs text-amber-900/80 leading-relaxed max-w-md mx-auto">
+              {error}
+            </p>
+          </div>
+        ) : loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[1, 2, 3, 4].map((n) => (
+              <div key={n} className="bg-white rounded-2xl border border-[#D9E7E8] p-4 space-y-4 animate-pulse">
+                <div className="aspect-4/3 bg-gray-200 rounded-xl" />
+                <div className="space-y-2">
+                  <div className="h-4 bg-gray-200 rounded w-3/4" />
+                  <div className="h-3 bg-gray-100 rounded w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featuredProducts.map((product) => (
+              <ProductCard key={product.productId} product={product} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Cloud Engineering Spotlight Callout Banner */}

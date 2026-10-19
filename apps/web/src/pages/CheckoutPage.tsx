@@ -284,10 +284,22 @@ export const CheckoutPage: React.FC = () => {
 
             {errorMessage && (
               <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <div>
-                  <div className="font-semibold">Checkout Error</div>
-                  <div className="mt-0.5">{errorMessage}</div>
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold text-sm text-rose-900 flex items-center gap-2">
+                    <span>Transaction Halted</span>
+                    {errorMessage.includes('AWS') && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-200 text-rose-950 font-mono font-semibold">
+                        AWS Infrastructure Required
+                      </span>
+                    )}
+                  </div>
+                  <div className="leading-relaxed">{errorMessage}</div>
+                  {errorMessage.includes('AWS') && (
+                    <div className="pt-1 text-[11px] text-rose-900 font-mono">
+                      Real AWS Step Functions and DynamoDB must be configured with valid credentials to process this order.
+                    </div>
+                  )}
                 </div>
               </div>
             )}

@@ -138,8 +138,8 @@ export const orderService = {
     await orderEventsRepository.append(submittedEvent);
 
     // 6. Start Step Functions Execution
-    try {
-      if (!config.useInMemoryDdb) {
+    if (!config.useInMemoryDdb) {
+      try {
         await sfnClient.send(
           new StartExecutionCommand({
             stateMachineArn: config.orderStateMachineArn,
@@ -153,12 +153,32 @@ export const orderService = {
             }),
           })
         );
-      } else {
-        // Local mode: trigger async simulated Step Functions Saga
-        this._runSimulatedStepFunctions(orderId, snapshotItems, input.faultScenario || 'NONE', correlationId);
+      } catch (err: unknown) {
+        console.error('[AWS Step Functions Error] Execution failed:', err);
+        await orderRepository.updateStatus(orderId, 'FAILED', {
+          failureReason: `AWS Step Functions execution failed: ${(err as Error).message}`,
+        });
+        await orderEventsRepository.append({
+          orderId,
+          eventKey: `${new Date().toISOString()}#evt_sfn_err`,
+          eventId: `evt_${Date.now()}_sfn_err`,
+          eventType: 'ORDER_FAILED',
+          fromStatus: 'PENDING',
+          toStatus: 'FAILED',
+          occurredAt: new Date().toISOString(),
+          correlationId,
+          details: `AWS Step Functions start failed: ${(err as Error).message}. Verify AWS credentials and state machine ARN.`,
+          source: 'STEP_FUNCTIONS',
+        });
+        throw new AppError(
+          502,
+          'AWS_STEP_FUNCTIONS_FAILED',
+          `AWS Step Functions failed to start: ${(err as Error).message}. Please ensure AWS credentials and the Step Functions state machine are configured.`
+        );
       }
-    } catch (err: unknown) {
-      console.warn('Step Functions start notification:', (err as Error).message);
+    } else {
+      // Local test suite mode
+      this._runSimulatedStepFunctions(orderId, snapshotItems, input.faultScenario || 'NONE', correlationId);
     }
 
     const responseBody: CreateOrderResult = {
