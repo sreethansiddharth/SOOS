@@ -25,8 +25,11 @@ export interface Product {
   name: string;
   subtitle: string;
   description: string;
-  category: 'audio' | 'keyboards' | 'accessories' | 'lighting' | 'charging' | 'desk-setup';
+  category: 'audio' | 'keyboards' | 'accessories' | 'lighting' | 'charging' | 'desk-setup' | 'smartphones' | 'laptops' | 'gaming' | 'wearables' | string;
   pricePaise: number; // Stored in integer paise (e.g. 899900 = ₹8,999.00)
+  mrpPaise?: number; // Original MRP before discount in paise (e.g. 1299900 = ₹12,999.00)
+  discountPercent?: number; // e.g. 31 for "31% off"
+  brand?: string;
   currency: string;
   imageUrl: string;
   galleryImages: string[];
@@ -37,7 +40,9 @@ export interface Product {
   reservedStock: number;
   specs: ProductSpec[];
   highlights: string[];
-  badge?: string;
+  badge?: string; // e.g. "BESTSELLER", "LIMITED DEAL", "AMAZON'S CHOICE"
+  isDealOfTheDay?: boolean;
+  deliveryDays?: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;

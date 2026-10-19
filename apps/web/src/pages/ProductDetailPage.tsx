@@ -17,6 +17,7 @@ import {
   Share2,
   Clock,
   Sparkles,
+  CreditCard,
 } from 'lucide-react';
 
 export const ProductDetailPage: React.FC = () => {
@@ -239,28 +240,63 @@ export const ProductDetailPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Price & Integer Paise Note */}
-          <div className="p-4 rounded-2xl bg-white border border-[#D9E7E8] flex items-center justify-between">
-            <div>
-              <div className="text-[10px] font-mono uppercase tracking-wider text-[#172B3A]/50">
-                Authoritative Price (Inc. 18% GST)
+          {/* Price, MRP, Savings & Bank Offer Box */}
+          <div className="p-5 rounded-2xl bg-white border border-gray-200/90 shadow-xs space-y-3">
+            <div className="flex items-baseline justify-between gap-3">
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-display font-black text-[#172B3A]">
+                    {formatPaiseToINR(product.pricePaise)}
+                  </span>
+                  {product.mrpPaise && product.mrpPaise > product.pricePaise && (
+                    <span className="text-sm text-gray-400 line-through">
+                      M.R.P.: {formatPaiseToINR(product.mrpPaise)}
+                    </span>
+                  )}
+                  {product.discountPercent && (
+                    <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">
+                      {product.discountPercent}% OFF
+                    </span>
+                  )}
+                </div>
+                {product.mrpPaise && product.mrpPaise > product.pricePaise && (
+                  <div className="text-xs font-bold text-emerald-700 mt-0.5">
+                    You save {formatPaiseToINR(product.mrpPaise - product.pricePaise)} inclusive of all taxes
+                  </div>
+                )}
               </div>
-              <div className="text-2xl sm:text-3xl font-display font-extrabold text-[#172B3A]">
-                {formatPaiseToINR(product.pricePaise)}
+
+              <div className="text-right">
+                <span className="text-[10px] font-mono text-[#267C78] bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-md font-bold">
+                  {product.pricePaise} paise
+                </span>
+                <div className="text-[11px] font-semibold mt-1">
+                  {isOutOfStock ? (
+                    <span className="text-rose-600">Currently unavailable</span>
+                  ) : (
+                    <span className="text-emerald-700 font-bold">
+                      In Stock ({product.availableStock} units)
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-[10px] font-mono text-[#267C78] bg-[#D9E7E8]/50 px-2 py-0.5 rounded">
-                {product.pricePaise} paise
+
+            {/* Bank Offer & EMI Pill */}
+            <div className="pt-3 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+              <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/70 text-amber-900 flex items-start gap-2">
+                <CreditCard className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold">Bank Offer</div>
+                  <div className="text-[10px] text-amber-800">Flat 10% Instant Discount on HDFC & ICICI Cards</div>
+                </div>
               </div>
-              <div className="text-[11px] text-[#172B3A]/60 mt-1">
-                {isOutOfStock ? (
-                  <span className="text-rose-600 font-semibold">0 in stock</span>
-                ) : (
-                  <span className="text-emerald-700 font-semibold">
-                    {product.availableStock} units available
-                  </span>
-                )}
+              <div className="p-2.5 rounded-xl bg-teal-50/80 border border-teal-200/70 text-teal-900 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-[#267C78] shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold">No Cost EMI</div>
+                  <div className="text-[10px] text-teal-800">Available on major banks. Up to 12 months</div>
+                </div>
               </div>
             </div>
           </div>

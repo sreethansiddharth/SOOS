@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Sparkles,
   Info,
+  Zap,
 } from 'lucide-react';
 
 export const CheckoutPage: React.FC = () => {
@@ -300,6 +301,26 @@ export const CheckoutPage: React.FC = () => {
                       Real AWS Step Functions and DynamoDB must be configured with valid credentials to process this order.
                     </div>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const demoResp = orderService.createDemoOrder(
+                        {
+                          items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+                          shippingAddress: form,
+                          faultScenario,
+                        },
+                        idempotencyKey,
+                        user?.id || 'cust_demo_882'
+                      );
+                      clearCart();
+                      navigate(`/orders/${demoResp.orderId}`);
+                    }}
+                    className="mt-2.5 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#267C78] hover:bg-[#1f6663] text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                    <span>Proceed in Demo Simulation Mode &rarr;</span>
+                  </button>
                 </div>
               </div>
             )}
